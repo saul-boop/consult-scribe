@@ -3,9 +3,9 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
-<meta name="apple-mobile-web-app-capable" content="yes">
-<meta name="mobile-web-app-capable" content="yes">
-<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<!-- Deliberately NOT apple-mobile-web-app-capable: iOS standalone mode breaks
+     SpeechRecognition (starts but never delivers results). Home-screen icon
+     must open as a normal Safari page for the mic to work. -->
 <meta name="apple-mobile-web-app-title" content="Consult Scribe">
 <meta name="theme-color" content="#0f766e">
 <title>Consult Scribe Lite — Eyes On Mosman</title>
@@ -430,7 +430,19 @@ const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
 let recognition=null, wantRecording=false, interrupted=false;
 let recStartTime=null, recAccumMs=0, timerInterval=null;
 let lastResultTime=0, stallInterval=null, wakeLock=null;
+let micStream=null, runBase="", runHadText=false;
 const interimEl=els("interim");
+
+/* iOS Safari only feeds SpeechRecognition results while the page also holds
+   an open getUserMedia audio stream — without it, recognition "records"
+   silently and never returns text. */
+async function primeMic(){
+  if(!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia)) return;
+  micStream=await navigator.mediaDevices.getUserMedia({audio:true});
+}
+function releaseMic(){
+  if(micStream){ micStream.getTracks().forEach(t=>{try{t.stop();}catch(_){}}); micStream=null; }
+}
 
 async function acquireWakeLock(){
   try{
@@ -466,39 +478,55 @@ function setRecordingUI(state){
   }
 }
 
-function appendFinal(text){
-  const t=text.trim(); if(!t) return;
-  transcriptEl.value += (transcriptEl.value && !transcriptEl.value.endsWith("\n") ? " " : "") + t;
-  consult.transcript=transcriptEl.value;
-  scheduleSave();
+/* Each recognition run rewrites the transcript as runBase + run text.
+   iOS re-delivers cumulative results, so appending from e.resultIndex
+   double-counts there; rebuilding the whole run every event is safe on
+   both iOS and desktop. */
+function beginRun(){
+  runBase=transcriptEl.value.trim();
+  runHadText=false;
+}
+function setLiveTranscript(runText){
+  const v=runBase + (runBase && runText ? " " : "") + runText;
+  transcriptEl.value=v;
+  consult.transcript=v;
   autoGrow(transcriptEl);
   transcriptEl.scrollTop=transcriptEl.scrollHeight;
-  lastResultTime=Date.now();
-  els("micStallBanner").classList.add("hidden");
+}
+function commitRun(){
+  runBase=transcriptEl.value.trim();
+  interimEl.textContent="";
+  if(runHadText){ runHadText=false; scheduleSave(); }
 }
 
 function buildRecognition(){
   const r=new SR();
   r.lang="en-AU"; r.continuous=true; r.interimResults=true;
   r.onresult=e=>{
-    let interim="";
-    for(let i=e.resultIndex;i<e.results.length;i++){
-      const res=e.results[i];
-      if(res.isFinal) appendFinal(res[0].transcript);
-      else { interim+=res[0].transcript; lastResultTime=Date.now(); }
+    let text="";
+    for(let i=0;i<e.results.length;i++){
+      const t=e.results[i][0].transcript.trim();
+      if(t) text+=(text?" ":"")+t;
     }
-    interimEl.textContent=interim;
+    if(text){ runHadText=true; setLiveTranscript(text); }
+    interimEl.textContent = wantRecording ? "Listening…" : "";
+    lastResultTime=Date.now();
+    els("micStallBanner").classList.add("hidden");
   };
   r.onerror=e=>{
     if(e.error==="not-allowed"||e.error==="service-not-allowed"){
-      wantRecording=false; setRecordingUI("off"); releaseWakeLock();
+      wantRecording=false; setRecordingUI("off"); stopMicWatchdog(); releaseMic(); releaseWakeLock();
       showError("Microphone permission denied. Allow mic access in browser settings and try again.");
     }
   };
   r.onend=()=>{
-    interimEl.textContent="";
+    commitRun();
     if(wantRecording){
-      setTimeout(()=>{ if(!wantRecording) return; try{recognition.start();}catch(_){}} ,300);
+      setTimeout(()=>{
+        if(!wantRecording) return;
+        beginRun();
+        try{recognition.start();}catch(_){}
+      },300);
     } else if(!interrupted){ setRecordingUI("off"); }
   };
   return r;
@@ -514,14 +542,20 @@ function startMicWatchdog(){
 }
 function stopMicWatchdog(){ clearInterval(stallInterval); els("micStallBanner").classList.add("hidden"); }
 
-function startRecording(){
+async function startRecording(){
   hideError();
   els("interruptBanner").classList.add("hidden");
   interrupted=false;
   if(!SR){ els("supportBanner").classList.remove("hidden"); return; }
   if(!window.isSecureContext){ refreshBanners(); return; }
+  try{ await primeMic(); }
+  catch(_){
+    showError("Couldn't open the microphone. Allow mic access for this site in Settings > Apps > Safari > Microphone, then try again.");
+    return;
+  }
   wantRecording=true;
   recognition=buildRecognition();
+  beginRun();
   try{recognition.start();}catch(_){}
   setRecordingUI("on");
   startMicWatchdog();
@@ -529,8 +563,9 @@ function startRecording(){
 }
 function stopRecording(){
   wantRecording=false; interrupted=false;
-  if(recognition){try{recognition.stop();}catch(_){}}
-  setRecordingUI("off"); stopMicWatchdog(); releaseWakeLock();
+  if(recognition){ try{recognition.abort();}catch(_){ try{recognition.stop();}catch(__){} } }
+  commitRun();
+  setRecordingUI("off"); stopMicWatchdog(); releaseMic(); releaseWakeLock();
   els("interruptBanner").classList.add("hidden");
   saveNowForce();
 }
@@ -538,8 +573,8 @@ document.addEventListener("visibilitychange",()=>{
   if(document.visibilityState==="hidden" && wantRecording){
     wantRecording=false; interrupted=true;
     recAccumMs += Date.now()-(recStartTime||Date.now());
-    if(recognition){try{recognition.stop();}catch(_){}}
-    stopMicWatchdog(); saveNow();
+    if(recognition){ try{recognition.abort();}catch(_){ try{recognition.stop();}catch(__){} } }
+    stopMicWatchdog(); releaseMic(); saveNow();
   } else if(document.visibilityState==="visible" && interrupted){
     setRecordingUI("resume");
     els("interruptBanner").classList.remove("hidden");
