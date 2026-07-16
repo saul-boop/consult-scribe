@@ -71,6 +71,11 @@
   .badge.generated{background:var(--amber-bg);color:var(--amber-tx)}
   .histdel{border:1px solid var(--border);background:#fff;color:var(--red);border-radius:10px;width:var(--tap);height:var(--tap);font-size:18px}
   .empty{text-align:center;color:var(--muted);padding:36px 12px;font-size:15px}
+  .chips{display:flex;flex-wrap:wrap;gap:8px}
+  .chip{border:1px solid var(--border);background:#f8fafc;color:var(--teal-dark);border-radius:999px;padding:8px 14px;font-size:14px;font-weight:600;min-height:40px;cursor:pointer}
+  .chip.used{opacity:.45;text-decoration:line-through}
+  #histSearch{margin-bottom:12px}
+  #dayListInput{min-height:90px;margin-top:10px}
   #settingsSheet{position:fixed;inset:0;z-index:50;background:rgba(0,0,0,.45);display:none;align-items:flex-end}
   #settingsSheet.open{display:flex}
   .sheet{background:#fff;width:100%;border-radius:18px 18px 0 0;padding:20px 18px max(24px,env(safe-area-inset-bottom));max-width:640px;margin:0 auto;max-height:88vh;overflow-y:auto}
@@ -120,6 +125,22 @@
     <div id="errBanner" class="banner err hidden" role="alert"></div>
 
     <div class="card">
+      <div class="cardhead">
+        <strong>Today's patients</strong>
+        <button class="copybtn" id="dayListEditBtn">Edit list</button>
+      </div>
+      <div id="dayChips" class="chips"></div>
+      <div id="dayListEmpty" class="hint">Copy today's names from the Optomate appointment book, tap Edit list and paste them — then tap a name before each consult.</div>
+      <div id="dayListEditor" class="hidden">
+        <textarea id="dayListInput" placeholder="One patient per line, e.g.&#10;09:00 J. Smith&#10;09:30 M. Jones"></textarea>
+        <div class="actions">
+          <button class="action" id="dayListSaveBtn">Save list</button>
+          <button class="action secondary" id="dayListClearBtn">Clear list</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
       <label class="fieldlabel" for="patientName">Patient (optional — labels this consult in History)</label>
       <input type="text" class="txt" id="patientName" placeholder="e.g. J. Smith 09:30" autocomplete="off">
     </div>
@@ -151,6 +172,7 @@
         <strong>Past consults</strong>
         <span class="hint">Stored only on this device</span>
       </div>
+      <input type="text" class="txt" id="histSearch" placeholder="Search patient name&hellip;" autocomplete="off">
       <div id="histList"></div>
       <div id="histEmpty" class="empty hidden">No consults yet. Notes you record are saved here automatically.</div>
     </div>
@@ -388,6 +410,10 @@ async function renderHistory(){
   list.innerHTML="";
   let all=[];
   try{ all=await dbAll(); }catch(_){}
+  const q=els("histSearch").value.trim().toLowerCase();
+  if(q) all=all.filter(c=>(c.patientLabel||"").toLowerCase().includes(q)||(c.transcript||"").toLowerCase().includes(q));
+  els("histEmpty").textContent = q ? "No consults match that search."
+    : "No consults yet. Notes you record are saved here automatically.";
   els("histEmpty").classList.toggle("hidden",all.length>0);
   all.forEach(c=>{
     const hasContent=(c.transcript&&c.transcript.trim())||c.note;
@@ -423,6 +449,62 @@ async function renderHistory(){
 els("clearAllBtn").onclick=async()=>{
   if(!confirm("Delete ALL saved consults from this device? This can't be undone.")) return;
   await dbClear(); consult=newConsult(); loadConsultIntoUI(); renderHistory(); toast("All consults deleted");
+};
+els("histSearch").addEventListener("input",renderHistory);
+
+/* ---------------- Today's patients (pasted from the Optomate day list) ---------------- */
+function todayKey(){ return new Date().toLocaleDateString("en-AU"); }
+function getDayList(){
+  try{
+    const d=JSON.parse(localStorage.getItem("csl_daylist")||"null");
+    if(d && d.date===todayKey() && Array.isArray(d.names)) return d;
+  }catch(_){}
+  return {date:todayKey(), names:[], used:[]};
+}
+function setDayList(d){ localStorage.setItem("csl_daylist",JSON.stringify(d)); }
+function renderDayList(){
+  const d=getDayList(), wrap=els("dayChips");
+  wrap.innerHTML="";
+  els("dayListEmpty").classList.toggle("hidden", d.names.length>0);
+  d.names.forEach(n=>{
+    const b=document.createElement("button");
+    b.className="chip"+(d.used.includes(n)?" used":"");
+    b.textContent=n;
+    b.onclick=()=>{
+      els("patientName").value=n;
+      consult.patientLabel=n;
+      scheduleSave();
+      const dd=getDayList();
+      if(!dd.used.includes(n)) dd.used.push(n);
+      setDayList(dd); renderDayList();
+      toast("Consult labelled: "+n);
+    };
+    wrap.appendChild(b);
+  });
+}
+els("dayListEditBtn").onclick=()=>{
+  const ed=els("dayListEditor");
+  if(ed.classList.contains("hidden")){
+    els("dayListInput").value=getDayList().names.join("\n");
+    ed.classList.remove("hidden");
+    autoGrow(els("dayListInput"));
+  } else ed.classList.add("hidden");
+};
+els("dayListSaveBtn").onclick=()=>{
+  const names=els("dayListInput").value.split(/\n+/).map(s=>s.trim()).filter(Boolean);
+  const d=getDayList();
+  d.names=names; d.used=d.used.filter(u=>names.includes(u));
+  setDayList(d);
+  els("dayListEditor").classList.add("hidden");
+  renderDayList();
+  toast(names.length ? "Today's list saved ("+names.length+" patients)" : "List cleared");
+};
+els("dayListClearBtn").onclick=()=>{
+  if(getDayList().names.length && !confirm("Clear today's patient list?")) return;
+  setDayList({date:todayKey(),names:[],used:[]});
+  els("dayListInput").value="";
+  els("dayListEditor").classList.add("hidden");
+  renderDayList();
 };
 
 /* ---------------- Speech recognition (hardened) ---------------- */
@@ -699,6 +781,7 @@ els("copyAllBtn").onclick=()=>{
 /* ---------------- Init ---------------- */
 (async function init(){
   refreshBanners();
+  renderDayList();
   const lastId=localStorage.getItem("csl_current_id");
   if(lastId){
     try{ const saved=await dbGet(lastId); if(saved) consult=saved; }catch(_){}
