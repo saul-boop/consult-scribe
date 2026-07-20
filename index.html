@@ -31,6 +31,7 @@
   .view{display:none}.view.active{display:block}
   .banner{background:var(--amber-bg);border:1px solid var(--amber-bd);color:var(--amber-tx);padding:12px 14px;border-radius:var(--radius);font-size:14px;margin-bottom:12px}
   .banner.err{background:#fee2e2;border-color:var(--red);color:#991b1b}
+  .banner.ok{background:#ecfdf5;border-color:#10b981;color:#065f46}
   .banner button{margin-top:8px;display:inline-block;border:none;border-radius:10px;background:var(--teal);color:#fff;font-weight:600;font-size:15px;padding:10px 16px;min-height:var(--tap)}
   .hidden{display:none!important}
   .card{background:var(--card);border:1px solid var(--border);border-radius:var(--radius);padding:14px;margin-bottom:14px}
@@ -55,7 +56,8 @@
   .actions{display:flex;gap:10px;margin-top:12px;flex-wrap:wrap}
   button.action{flex:1;min-width:130px;border:none;border-radius:var(--radius);font-size:16px;font-weight:600;padding:15px 10px;cursor:pointer;background:var(--teal);color:#fff;min-height:52px}
   button.action.secondary{background:#e2e8f0;color:var(--text)}
-  button.action:disabled{background:#cbd5e1;color:#f8fafc}
+  button.action.push{background:#0369a1}
+  button.action:disabled{background:#cbd5e1;color:#f8fafc;cursor:not-allowed}
   .notefield{margin-bottom:14px}
   .notefield .fhead{display:flex;align-items:center;justify-content:space-between;margin-bottom:4px}
   .copybtn{border:1px solid var(--border);background:#f8fafc;color:var(--teal-dark);border-radius:10px;font-size:14px;font-weight:600;padding:10px 14px;cursor:pointer;min-height:40px}
@@ -69,11 +71,13 @@
   .badge{display:inline-block;font-size:11px;font-weight:700;border-radius:999px;padding:3px 9px;letter-spacing:.03em;text-transform:uppercase}
   .badge.draft{background:#e2e8f0;color:#475569}
   .badge.generated{background:var(--amber-bg);color:var(--amber-tx)}
+  .badge.pushed{background:#dbeafe;color:#1e3a8a}
   .histdel{border:1px solid var(--border);background:#fff;color:var(--red);border-radius:10px;width:var(--tap);height:var(--tap);font-size:18px}
   .empty{text-align:center;color:var(--muted);padding:36px 12px;font-size:15px}
   .chips{display:flex;flex-wrap:wrap;gap:8px}
   .chip{border:1px solid var(--border);background:#f8fafc;color:var(--teal-dark);border-radius:999px;padding:8px 14px;font-size:14px;font-weight:600;min-height:40px;cursor:pointer}
   .chip.used{opacity:.45;text-decoration:line-through}
+  .chip.matched{background:var(--teal);color:#fff;border-color:var(--teal)}
   #histSearch{margin-bottom:12px}
   #dayListInput{min-height:90px;margin-top:10px}
   #settingsSheet{position:fixed;inset:0;z-index:50;background:rgba(0,0,0,.45);display:none;align-items:flex-end}
@@ -86,6 +90,9 @@
   .danger{color:var(--red);border-color:#fecaca!important;background:#fff!important}
   #toast{position:fixed;bottom:110px;left:50%;transform:translateX(-50%);background:var(--text);color:#fff;padding:12px 20px;border-radius:999px;font-size:14px;opacity:0;transition:opacity .25s;pointer-events:none;z-index:60;white-space:nowrap;max-width:92vw;overflow:hidden;text-overflow:ellipsis}
   #toast.show{opacity:1}
+  .idrow{display:flex;gap:10px;flex-wrap:wrap}
+  .idrow input{flex:1;min-width:110px}
+  .smallhint{font-size:12px;color:var(--muted);margin-top:4px}
 </style>
 </head>
 <body>
@@ -94,7 +101,7 @@
   <div class="hrow">
     <div>
       <h1>Consult Scribe Lite</h1>
-      <div class="sub">Eyes On Mosman · dictate &rarr; copy &rarr; paste into Optomate</div>
+      <div class="sub">Eyes On Mosman · dictate &rarr; generate &rarr; push to Optomate</div>
     </div>
     <button id="settingsBtn" aria-label="Settings">&#9881;</button>
   </div>
@@ -107,13 +114,16 @@
 <main>
   <section id="viewConsult" class="view active">
     <div id="httpsBanner" class="banner err hidden">
-      Microphone access needs HTTPS. Open this page from its https:// address (see the setup note), not as a local file.
+      The microphone is blocked at this address. Open the app either at its https:// github.io address or through the Consult Scribe connector (http://localhost:8383) — both allow the mic.
     </div>
     <div id="supportBanner" class="banner err hidden">
       This browser doesn't support live speech recognition. You can still type or paste a transcript below and generate a note.
     </div>
     <div id="keyBanner" class="banner hidden">
       No Anthropic API key set. Tap the gear icon and paste your key before generating notes.
+    </div>
+    <div id="optoBanner" class="banner hidden">
+      Optomate host/username/password not set. Tap the gear icon to configure them before pushing notes — copy-paste still works without this.
     </div>
     <div id="interruptBanner" class="banner hidden">
       Recording stopped while the app was in the background. Your transcript is saved.
@@ -123,6 +133,7 @@
       The microphone hasn't heard anything for a while. Check the mic is live, or stop and restart recording.
     </div>
     <div id="errBanner" class="banner err hidden" role="alert"></div>
+    <div id="okBanner" class="banner ok hidden" role="status"></div>
 
     <div class="card">
       <div class="cardhead">
@@ -146,6 +157,31 @@
     </div>
 
     <div class="card">
+      <div class="cardhead">
+        <strong>Optomate patient match</strong>
+        <button class="copybtn" id="findApptsBtn">Find today's appointments</button>
+      </div>
+      <div class="hint" style="margin-bottom:8px;">
+        Required only if you want to push notes to Optomate. Tap "Find today's appointments", then tap the patient — the IDs fill themselves. Or type the IDs directly if you already know them.
+      </div>
+      <div id="apptChips" class="chips" style="margin-bottom:10px;"></div>
+      <div class="idrow">
+        <div>
+          <label class="fieldlabel" for="patientIdInput">Patient ID</label>
+          <input type="number" class="txt" id="patientIdInput" placeholder="e.g. 4821" autocomplete="off">
+        </div>
+        <div>
+          <label class="fieldlabel" for="optometristIdInput">Optometrist ID</label>
+          <input type="number" class="txt" id="optometristIdInput" placeholder="e.g. 3" autocomplete="off">
+        </div>
+        <div>
+          <label class="fieldlabel" for="branchIdInput">Branch identifier</label>
+          <input type="text" class="txt" id="branchIdInput" placeholder="e.g. MOSMAN" autocomplete="off">
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
       <label class="fieldlabel" for="transcript">Transcript (editable)</label>
       <textarea id="transcript" placeholder="Live transcript appears here as you talk&hellip;"></textarea>
       <div id="interim" aria-live="polite"></div>
@@ -158,10 +194,20 @@
 
     <div class="card hidden" id="noteCard">
       <div class="cardhead">
-        <strong>Structured note — copy into Optomate</strong>
-        <button class="copybtn" id="copyAllBtn">Copy all</button>
+        <strong>Structured note</strong>
+        <div style="display:flex; gap:8px;">
+          <button class="copybtn" id="copyAllBtn">Copy all</button>
+        </div>
       </div>
       <div class="hint" style="margin-bottom:10px;">Each field is ready to paste into the matching Optomate exam field. Fields the AI heard nothing about stay empty — it never invents findings.</div>
+      <div class="hint" style="margin-bottom:10px;">
+        <strong>Push to Optomate</strong> sends only <em>Complaint, General Health, Past Ocular History and Family Ocular History</em> — the four fields Optomate's API confirms are writable on an Examination record. VA, IOP, pupil, anterior/posterior, pachymetry, dilated fundus, Rx, dispensing and advice/management are not yet confirmed writable — copy-paste those as before.
+      </div>
+      <div class="actions" style="margin-bottom:10px;">
+        <button class="action push" id="pushBtn">Push notes to Optomate</button>
+        <button class="action secondary" id="testConnBtn">Test Optomate connection</button>
+      </div>
+      <div id="pushStatus" class="smallhint"></div>
       <div id="noteFields"></div>
     </div>
   </section>
@@ -201,11 +247,20 @@
     <input type="text" id="modelInput" placeholder="claude-sonnet-5">
     <div class="hint">Leave as default unless you have a reason to change it.</div>
 
+    <h2 style="margin-top:16px;">Optomate Touch API</h2>
+    <label class="fieldlabel" for="optoHostInput">Host (leave blank when using the connector)</label>
+    <input type="text" id="optoHostInput" placeholder="blank = this computer's connector" autocomplete="off">
+    <label class="fieldlabel" for="optoUserInput">API username</label>
+    <input type="text" id="optoUserInput" placeholder="consultscribe" autocomplete="off">
+    <label class="fieldlabel" for="optoPassInput">API password</label>
+    <input type="password" id="optoPassInput" placeholder="" autocomplete="off">
+    <div class="hint">Stored only in this browser's local storage on this device, same as the Anthropic key. Open the app via the Consult Scribe connector on the work computer (http://localhost:8383) and leave Host blank — the connector relays requests to the practice server. Only fill Host for direct testing (e.g. http://MOSMAN:12000), which browsers usually block from a web page.</div>
+
     <h2 style="margin-top:16px;">Data</h2>
     <div class="actions">
       <button class="action secondary danger" id="clearAllBtn">Delete all saved consults</button>
     </div>
-    <div class="hint" style="margin-top:8px;">Consult notes are health information — they live only in this browser's storage on this device. Transcripts are sent to the Anthropic API only when you tap Generate.</div>
+    <div class="hint" style="margin-top:8px;">Consult notes are health information — they live only in this browser's storage on this device. Transcripts are sent to the Anthropic API only when you tap Generate. Notes are sent to Optomate only when you tap Push.</div>
 
     <div class="actions" style="margin-top:10px;">
       <button class="action" id="saveSettingsBtn">Save settings</button>
@@ -220,7 +275,7 @@
 "use strict";
 
 /* Clinical field definitions, prompt rules and Rx line formats are load-bearing:
-   Optomate paste-format depends on them. Identical to the full app. */
+   Optomate paste-format depends on them. Identical to the base app. */
 const FIELDS = [
   { key: "complaint",      label: "Complaint" },
   { key: "general_health", label: "General Health" },
@@ -239,6 +294,17 @@ const FIELDS = [
   { key: "advice_mgmt",    label: "Advice / Management" },
   { key: "free_notes",     label: "Free Notes" }
 ];
+
+/* Only these four are confirmed writable via Optomate's Examination API
+   (Technical Specification v2.11.2, Examinations resource, DETAILS input).
+   Do not add more keys here without confirming Appendix B / $metadata first
+   — see optomate-integration-plan.md, section 2. */
+const OPTOMATE_NOTE_MAP = {
+  complaint:      "COMPLAINT_NOTE",
+  general_health: "GENERAL_HEALTH_NOTE",
+  past_ocular:    "PAST_OCULAR_HISTORY_NOTE",
+  family_ocular:  "FAMILY_OCULAR_HISTORY_NOTE"
+};
 
 const SYSTEM_PROMPT = `You are a clinical scribe assistant for an Australian optometry practice. You receive the raw transcript of an optometrist's dictation/conversation during an eye exam, and you convert it into a structured note for the Optomate Touch practice-management system.
 
@@ -282,18 +348,29 @@ const DEFAULT_MODEL = "claude-sonnet-5";
 
 let toastTimer;
 function toast(msg){const t=els("toast");t.textContent=msg;t.classList.add("show");clearTimeout(toastTimer);toastTimer=setTimeout(()=>t.classList.remove("show"),2000);}
-function showError(msg){const b=els("errBanner");b.textContent=msg;b.classList.remove("hidden");}
+function showError(msg){const b=els("errBanner");b.textContent=msg;b.classList.remove("hidden");els("okBanner").classList.add("hidden");}
 function hideError(){els("errBanner").classList.add("hidden");}
+function showOk(msg){const b=els("okBanner");b.textContent=msg;b.classList.remove("hidden");els("errBanner").classList.add("hidden");}
+function hideOk(){els("okBanner").classList.add("hidden");}
 function autoGrow(ta){ta.style.height="auto";ta.style.height=Math.max(ta.scrollHeight,44)+"px";}
 document.addEventListener("input",e=>{if(e.target.tagName==="TEXTAREA")autoGrow(e.target);});
 
 /* ---------------- Settings ---------------- */
 const apiKey = () => localStorage.getItem("csl_api_key") || "";
 const model  = () => localStorage.getItem("csl_model") || DEFAULT_MODEL;
+const optoHost = () => (localStorage.getItem("csl_opto_host") || "").replace(/\/+$/,"");
+const optoUser = () => localStorage.getItem("csl_opto_user") || "";
+const optoPass = () => localStorage.getItem("csl_opto_pass") || "";
+/* Host may be blank: requests then go same-origin, i.e. through the local
+   connector that serves this page and relays to the practice server. */
+const optoConfigured = () => !!(optoUser() && optoPass());
 
 function openSettings(){
   els("apiKeyInput").value = apiKey();
   els("modelInput").value = model();
+  els("optoHostInput").value = optoHost();
+  els("optoUserInput").value = optoUser();
+  els("optoPassInput").value = optoPass();
   els("settingsSheet").classList.add("open");
 }
 function closeSettings(){ els("settingsSheet").classList.remove("open"); }
@@ -303,11 +380,15 @@ els("settingsSheet").onclick = e => { if (e.target === els("settingsSheet")) clo
 els("saveSettingsBtn").onclick = () => {
   localStorage.setItem("csl_api_key", els("apiKeyInput").value.trim());
   localStorage.setItem("csl_model", els("modelInput").value.trim() || DEFAULT_MODEL);
+  localStorage.setItem("csl_opto_host", els("optoHostInput").value.trim());
+  localStorage.setItem("csl_opto_user", els("optoUserInput").value.trim());
+  localStorage.setItem("csl_opto_pass", els("optoPassInput").value);
   closeSettings(); refreshBanners(); toast("Settings saved");
 };
 function refreshBanners(){
   els("keyBanner").classList.toggle("hidden", !!apiKey());
   els("httpsBanner").classList.toggle("hidden", window.isSecureContext);
+  els("optoBanner").classList.toggle("hidden", optoConfigured());
 }
 
 /* ---------------- IndexedDB: never lose a consult ---------------- */
@@ -333,14 +414,16 @@ function blankNote(){const n={};FIELDS.forEach(f=>n[f.key]="");return n;}
 function newConsult(){
   return { id:"c"+Date.now()+Math.random().toString(36).slice(2,7),
     createdAt:Date.now(), updatedAt:Date.now(),
-    patientLabel:"", transcript:"", note:null, status:"draft" };
+    patientLabel:"", transcript:"", note:null, status:"draft",
+    patientId:null, optometristId:null, branchIdentifier:"",
+    optomateExamId:null, pushedAt:null };
 }
 let consult = newConsult();
 
 let saveTimer=null, savePending=false;
 function scheduleSave(){
   savePending=true;
-  els("saveStatus").textContent="Saving\u2026";
+  els("saveStatus").textContent="Saving…";
   clearTimeout(saveTimer);
   saveTimer=setTimeout(saveNow,600);
 }
@@ -362,6 +445,11 @@ window.addEventListener("pagehide",saveNow);
 const transcriptEl = els("transcript");
 transcriptEl.addEventListener("input",()=>{consult.transcript=transcriptEl.value;scheduleSave();});
 els("patientName").addEventListener("input",()=>{consult.patientLabel=els("patientName").value;scheduleSave();});
+els("patientIdInput").addEventListener("input",()=>{consult.patientId=parseIntOrNull(els("patientIdInput").value);scheduleSave();});
+els("optometristIdInput").addEventListener("input",()=>{consult.optometristId=parseIntOrNull(els("optometristIdInput").value);scheduleSave();});
+els("branchIdInput").addEventListener("input",()=>{consult.branchIdentifier=els("branchIdInput").value.trim();scheduleSave();});
+
+function parseIntOrNull(v){ const n=parseInt(v,10); return Number.isFinite(n) ? n : null; }
 
 function collectNoteFromUI(){
   if(!consult.note) return;
@@ -370,9 +458,13 @@ function collectNoteFromUI(){
 function loadConsultIntoUI(){
   transcriptEl.value = consult.transcript || "";
   els("patientName").value = consult.patientLabel || "";
+  els("patientIdInput").value = consult.patientId != null ? consult.patientId : "";
+  els("optometristIdInput").value = consult.optometristId != null ? consult.optometristId : "";
+  els("branchIdInput").value = consult.branchIdentifier || "";
   autoGrow(transcriptEl);
   if(consult.note){ renderNote(consult.note,false); }
   else { els("noteCard").classList.add("hidden"); els("noteFields").innerHTML=""; }
+  updatePushStatus();
 }
 async function startNewConsult(){
   collectNoteFromUI();
@@ -422,9 +514,11 @@ async function renderHistory(){
     const name=document.createElement("div"); name.className="name";
     name.textContent=c.patientLabel||"Unlabelled consult";
     const meta=document.createElement("div"); meta.className="meta";
-    const badge=document.createElement("span"); badge.className="badge "+(c.status==="generated"?"generated":"draft");
-    badge.textContent=c.status;
-    meta.textContent=fmtWhen(c.updatedAt)+(hasContent?"":" \u00b7 empty")+" ";
+    const badgeClass = c.optomateExamId ? "pushed" : (c.status==="generated" ? "generated" : "draft");
+    const badgeText = c.optomateExamId ? "pushed" : c.status;
+    const badge=document.createElement("span"); badge.className="badge "+badgeClass;
+    badge.textContent=badgeText;
+    meta.textContent=fmtWhen(c.updatedAt)+(hasContent?"":" · empty")+" ";
     meta.appendChild(badge);
     body.appendChild(name); body.appendChild(meta);
     body.onclick=async()=>{
@@ -435,7 +529,7 @@ async function renderHistory(){
       toast("Opened "+(consult.patientLabel||"consult"));
     };
     const del=document.createElement("button"); del.className="histdel";
-    del.setAttribute("aria-label","Delete consult"); del.textContent="\u2715";
+    del.setAttribute("aria-label","Delete consult"); del.textContent="✕";
     del.onclick=async()=>{
       if(!confirm("Delete this consult from the device? This can't be undone.")) return;
       await dbDelete(c.id);
@@ -505,6 +599,194 @@ els("dayListClearBtn").onclick=()=>{
   els("dayListInput").value="";
   els("dayListEditor").classList.add("hidden");
   renderDayList();
+};
+
+/* ---------------- Optomate API client ----------------
+   UNTESTED against a live server as of this build. Confirmed from Monkey
+   Software's "Optomate Touch API Technical Specification v2.11.2":
+     - Basic Auth on every request (Authorization header).
+     - Examinations resource: POST/PUT/PATCH, DETAILS accepts
+       COMPLAINT_NOTE / GENERAL_HEALTH_NOTE / PAST_OCULAR_HISTORY_NOTE /
+       FAMILY_OCULAR_HISTORY_NOTE only.
+     - Appointments resource: GET with $filter, returns PATIENT_ID /
+       OPTOMETRIST_ID / BRANCH_IDENTIFIER / STARTDATETIME.
+   NOT confirmed and NOT implemented: VA/IOP/pupil/anterior/posterior/
+   pachymetry/dilated fundus/dispensing/advice_mgmt writes, and Rx writes
+   (Rx needs the free-text rx_distance/rx_near parsed into discrete
+   sphere/cyl/axis/add first — that parser doesn't exist yet and
+   shouldn't be guessed at blind). See optomate-integration-plan.md.
+------------------------------------------------------- */
+function optomateAuthHeader(){
+  return "Basic " + btoa(optoUser() + ":" + optoPass());
+}
+async function optomateRequest(path, { method="GET", body, timeoutMs=10000 } = {}){
+  if(!optoConfigured()) throw new Error("Optomate username/password not set — tap the gear icon and fill them in first.");
+  const controller = new AbortController();
+  const t = setTimeout(()=>controller.abort(), timeoutMs);
+  let resp;
+  try{
+    resp = await fetch(`${optoHost()}/OptomateTouch/OData4${path}`, {
+      method,
+      headers: {
+        "Authorization": optomateAuthHeader(),
+        "Content-Type": "application/json",
+        "Accept": "application/json"
+      },
+      body: body !== undefined ? JSON.stringify(body) : undefined,
+      signal: controller.signal
+    });
+  }catch(err){
+    const where = optoHost() || "the connector on this computer";
+    if(err.name === "AbortError") throw new Error(`Optomate request timed out — ${where} didn't answer. Check the connector is running and the practice server is on.`);
+    throw new Error(`Couldn't reach ${where} — ${err.message}. On the work computer, open the app at http://localhost:8383 with the connector running and leave Host blank in Settings.`);
+  }finally{
+    clearTimeout(t);
+  }
+  let data = null;
+  const text = await resp.text();
+  if(text){ try{ data = JSON.parse(text); }catch(_){ data = { raw:text }; } }
+  if(!resp.ok){
+    const code = data && data.error && data.error.code;
+    const message = (data && data.error && data.error.message) || resp.statusText || `HTTP ${resp.status}`;
+    throw new Error(`Optomate API error${code?" "+code:""} (HTTP ${resp.status}): ${message}`);
+  }
+  return data;
+}
+
+async function optomateTestConnection(){
+  return optomateRequest("/Branches");
+}
+
+async function optomateGetTodaysAppointments(){
+  const today = new Date();
+  const start = new Date(today.getFullYear(), today.getMonth(), today.getDate()).toISOString();
+  const end = new Date(today.getFullYear(), today.getMonth(), today.getDate()+1).toISOString();
+  const filter = encodeURIComponent(`STARTDATETIME ge ${start} and STARTDATETIME lt ${end}`);
+  const data = await optomateRequest(`/Appointments?$filter=${filter}&$orderby=STARTDATETIME`);
+  return (data && data.value) || [];
+}
+
+function buildExaminationDetails(note){
+  const details = {};
+  for(const [noteKey, optomateKey] of Object.entries(OPTOMATE_NOTE_MAP)){
+    const value = (note[noteKey] || "").trim();
+    if(value) details[optomateKey] = value; // omit blanks — never overwrite existing Optomate data with ""
+  }
+  return details;
+}
+
+async function optomatePushNotes(){
+  collectNoteFromUI();
+  if(!consult.note) throw new Error("Generate a note first.");
+  if(consult.patientId == null) throw new Error("Enter or select a Patient ID first (Optomate patient match card).");
+  if(consult.optometristId == null) throw new Error("Enter or select an Optometrist ID first.");
+  if(!consult.branchIdentifier) throw new Error("Enter or select a Branch identifier first.");
+
+  const details = buildExaminationDetails(consult.note);
+  if(Object.keys(details).length === 0) throw new Error("None of the four Optomate-writable fields (Complaint, General Health, Past Ocular, Family Ocular) have content — nothing to push.");
+
+  if(consult.optomateExamId){
+    await optomateRequest(`/Examinations(${consult.optomateExamId})`, { method:"PATCH", body:{ DETAILS: details } });
+  } else {
+    const now = new Date();
+    const examDate = now.toISOString().slice(0,10);
+    const examTime = now.toLocaleTimeString("en-US",{hour:"2-digit",minute:"2-digit",hour12:true});
+    const result = await optomateRequest("/Examinations", {
+      method:"POST",
+      body:{
+        EXAM_DATE: examDate,
+        EXAM_TIME: examTime,
+        PATIENT_ID: consult.patientId,
+        BRANCH_IDENTIFIER: consult.branchIdentifier,
+        OPTOMETRIST_ID: consult.optometristId,
+        DETAILS: details
+      }
+    });
+    if(result && result.ID != null) consult.optomateExamId = result.ID;
+  }
+  consult.pushedAt = Date.now();
+  scheduleSave();
+  await saveNowForce();
+}
+
+function updatePushStatus(){
+  const el = els("pushStatus");
+  if(!el) return;
+  if(consult.pushedAt){
+    el.textContent = "Pushed to Optomate " + fmtWhen(consult.pushedAt) + (consult.optomateExamId ? ` (Examination #${consult.optomateExamId})` : "");
+  } else {
+    el.textContent = "Not yet pushed to Optomate.";
+  }
+}
+
+els("pushBtn").onclick = async () => {
+  hideError(); hideOk();
+  const btn = els("pushBtn");
+  btn.disabled = true;
+  try{
+    await optomatePushNotes();
+    updatePushStatus();
+    showOk("Pushed notes to Optomate.");
+    toast("Pushed to Optomate");
+  }catch(err){
+    showError(err.message || String(err));
+  }finally{
+    btn.disabled = false;
+  }
+};
+
+els("testConnBtn").onclick = async () => {
+  hideError(); hideOk();
+  const btn = els("testConnBtn");
+  btn.disabled = true;
+  try{
+    await optomateTestConnection();
+    showOk("Connected — Optomate returned data from /Branches. Auth and network path are working.");
+  }catch(err){
+    showError(err.message || String(err));
+  }finally{
+    btn.disabled = false;
+  }
+};
+
+els("findApptsBtn").onclick = async () => {
+  hideError(); hideOk();
+  const btn = els("findApptsBtn");
+  btn.disabled = true;
+  try{
+    const appts = await optomateGetTodaysAppointments();
+    const wrap = els("apptChips");
+    wrap.innerHTML = "";
+    if(!appts.length){ toast("No appointments returned for today"); }
+    appts.forEach(a => {
+      const time = a.STARTDATETIME ? new Date(a.STARTDATETIME).toLocaleTimeString("en-AU",{hour:"2-digit",minute:"2-digit",hour12:false}) : "?";
+      const caption = (a.CAPTION || "").trim(); // appointment-book display text, usually the patient's name
+      const b = document.createElement("button");
+      b.className = "chip";
+      b.textContent = `${time} · ${caption || "Patient #"+a.PATIENT_ID}`;
+      b.onclick = () => {
+        consult.patientId = a.PATIENT_ID;
+        consult.optometristId = a.OPTOMETRIST_ID;
+        consult.branchIdentifier = a.BRANCH_IDENTIFIER || consult.branchIdentifier;
+        els("patientIdInput").value = a.PATIENT_ID != null ? a.PATIENT_ID : "";
+        els("optometristIdInput").value = a.OPTOMETRIST_ID != null ? a.OPTOMETRIST_ID : "";
+        els("branchIdInput").value = consult.branchIdentifier || "";
+        if(caption && !els("patientName").value.trim()){
+          els("patientName").value = `${time} ${caption}`;
+          consult.patientLabel = `${time} ${caption}`;
+        }
+        scheduleSave();
+        wrap.querySelectorAll(".chip").forEach(c=>c.classList.remove("matched"));
+        b.classList.add("matched");
+        toast("Matched: "+(caption || "Patient #"+a.PATIENT_ID));
+      };
+      wrap.appendChild(b);
+    });
+  }catch(err){
+    showError(err.message || String(err));
+  }finally{
+    btn.disabled = false;
+  }
 };
 
 /* ---------------- Speech recognition (hardened) ---------------- */
@@ -667,7 +949,7 @@ els("recordBtn").onclick=()=>{ wantRecording ? stopRecording() : startRecording(
 
 /* ---------------- Generate note ---------------- */
 async function generateNote(){
-  hideError();
+  hideError(); hideOk();
   const transcript=transcriptEl.value.trim();
   if(!transcript){ toast("Transcript is empty"); return; }
   if(!apiKey()){ refreshBanners(); openSettings(); return; }
@@ -676,7 +958,7 @@ async function generateNote(){
   const btn=els("generateBtn");
   btn.disabled=true;
   els("spinner").style.display="block";
-  els("recStatus").textContent="Generating note\u2026";
+  els("recStatus").textContent="Generating note…";
   try{
     const resp=await fetch("https://api.anthropic.com/v1/messages",{
       method:"POST",
@@ -700,6 +982,7 @@ async function generateNote(){
     const raw=(data.content||[]).filter(b=>b.type==="text").map(b=>b.text).join("");
     const note=parseNoteJSON(raw);
     consult.note=note; consult.status="generated";
+    consult.optomateExamId=null; consult.pushedAt=null; // a re-generated note is a new write, not an update to a prior push
     scheduleSave();
     renderNote(note,true);
     els("recStatus").textContent="Not recording";
@@ -741,7 +1024,7 @@ function renderNote(note,scroll){
     const btn=document.createElement("button"); btn.className="copybtn"; btn.textContent="Copy";
     head.appendChild(label); head.appendChild(btn);
     const ta=document.createElement("textarea");
-    ta.id="field_"+f.key; ta.value=note[f.key]||""; ta.placeholder="\u2014";
+    ta.id="field_"+f.key; ta.value=note[f.key]||""; ta.placeholder="—";
     ta.addEventListener("input",()=>{consult.note[f.key]=ta.value;scheduleSave();});
     btn.onclick=()=>copyText(ta.value,btn);
     div.appendChild(head); div.appendChild(ta);
@@ -749,6 +1032,7 @@ function renderNote(note,scroll){
   });
   els("noteCard").classList.remove("hidden");
   wrap.querySelectorAll("textarea").forEach(autoGrow);
+  updatePushStatus();
   if(scroll) els("noteCard").scrollIntoView({behavior:"smooth"});
 }
 
@@ -763,7 +1047,7 @@ async function copyText(text,btn){
     ta.remove();
   }
   if(ok&&btn){
-    btn.textContent="Copied \u2713"; btn.classList.add("copied");
+    btn.textContent="Copied ✓"; btn.classList.add("copied");
     setTimeout(()=>{btn.textContent="Copy";btn.classList.remove("copied");},1400);
   } else if(!ok) toast("Copy failed — select the text manually");
 }
