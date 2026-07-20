@@ -49,7 +49,12 @@ function Send-Bytes($response, [byte[]]$bytes, $contentType, $statusCode = 200) 
 }
 
 while ($listener.IsListening) {
-    try { $ctx = $listener.GetContext() } catch { break }
+    try { $ctx = $listener.GetContext() }
+    catch {
+        # Transient accept errors must not kill the connector; only exit
+        # if the listener itself has stopped.
+        if (-not $listener.IsListening) { break } else { continue }
+    }
     $req = $ctx.Request
     $res = $ctx.Response
     try {
