@@ -19,7 +19,7 @@
   }
   *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
   html,body{margin:0;padding:0}
-  body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;background:var(--bg);color:var(--text);padding-bottom:120px}
+  body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;background:var(--bg);color:var(--text);padding-bottom:200px}
   header{position:sticky;top:0;z-index:20;background:var(--teal);color:#fff;padding:max(10px,env(safe-area-inset-top)) 14px 0}
   .hrow{display:flex;align-items:center;justify-content:space-between}
   header h1{font-size:17px;margin:0;font-weight:700}
@@ -40,6 +40,9 @@
   .cardhead strong{font-size:16px}
   #recordBar{position:fixed;left:0;right:0;bottom:0;z-index:30;background:rgba(255,255,255,.96);backdrop-filter:blur(8px);border-top:1px solid var(--border);padding:10px 14px max(12px,env(safe-area-inset-bottom))}
   #recordBar .inner{max-width:640px;margin:0 auto}
+  #recordBarActions{margin-top:0;margin-bottom:10px}
+  #recordBarActions .action{min-height:44px;padding:11px 10px;font-size:15px}
+  #recordBar #spinner{margin-bottom:10px}
   #recordBtn{width:100%;border:none;border-radius:var(--radius);font-size:19px;font-weight:700;padding:18px 10px;color:#fff;background:var(--teal);cursor:pointer;min-height:58px}
   #recordBtn:active{transform:scale(.985)}
   #recordBtn.recording{background:var(--red)}
@@ -186,11 +189,6 @@
       <label class="fieldlabel" for="transcript">Transcript (editable)</label>
       <textarea id="transcript" placeholder="Live transcript appears here as you talk&hellip;"></textarea>
       <div id="interim" aria-live="polite"></div>
-      <div class="actions">
-        <button class="action" id="generateBtn">Generate note</button>
-        <button class="action secondary" id="newConsultBtn">New consult</button>
-      </div>
-      <div id="spinner" role="status" aria-label="Generating"></div>
     </div>
 
     <div class="card hidden" id="noteCard">
@@ -228,6 +226,11 @@
 
 <div id="recordBar">
   <div class="inner">
+    <div class="actions" id="recordBarActions">
+      <button class="action" id="generateBtn">Generate note</button>
+      <button class="action secondary" id="newConsultBtn">New consult</button>
+    </div>
+    <div id="spinner" role="status" aria-label="Generating"></div>
     <button id="recordBtn">&#127908; Start recording</button>
     <div class="status-row">
       <span class="dot" id="recDot"></span>
