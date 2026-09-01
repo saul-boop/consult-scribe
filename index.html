@@ -183,6 +183,10 @@
           <input type="text" class="txt" id="branchIdInput" placeholder="e.g. MOSMAN" autocomplete="off">
         </div>
       </div>
+      <div class="actions" id="matchCardActions">
+        <button class="action" id="generateBtn2">Generate note</button>
+        <button class="action secondary" id="newConsultBtn2">New consult</button>
+      </div>
     </div>
 
     <div class="card">
@@ -478,7 +482,9 @@ async function startNewConsult(){
   loadConsultIntoUI();
   toast("New consult started");
 }
-els("newConsultBtn").onclick=()=>{ if(wantRecording) stopRecording(); startNewConsult(); };
+const onNewConsult=()=>{ if(wantRecording) stopRecording(); startNewConsult(); };
+els("newConsultBtn").onclick=onNewConsult;
+els("newConsultBtn2").onclick=onNewConsult;
 
 /* ---------------- Tabs ---------------- */
 function showView(name){
@@ -959,8 +965,8 @@ async function generateNote(){
   if(!apiKey()){ refreshBanners(); openSettings(); return; }
   if(wantRecording) stopRecording();
 
-  const btn=els("generateBtn");
-  btn.disabled=true;
+  const btn=els("generateBtn"), btn2=els("generateBtn2");
+  btn.disabled=true; btn2.disabled=true;
   els("spinner").style.display="block";
   els("recStatus").textContent="Generating note…";
   try{
@@ -994,7 +1000,7 @@ async function generateNote(){
     showError(err.message||String(err));
     els("recStatus").textContent="Note generation failed";
   }finally{
-    btn.disabled=false;
+    btn.disabled=false; btn2.disabled=false;
     els("spinner").style.display="none";
   }
 }
@@ -1015,6 +1021,7 @@ function parseNoteJSON(raw){
   }
 }
 els("generateBtn").onclick=generateNote;
+els("generateBtn2").onclick=generateNote;
 
 /* ---------------- Render note fields ---------------- */
 function renderNote(note,scroll){
