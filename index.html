@@ -801,6 +801,11 @@ els("findApptsBtn").onclick = async () => {
 
 /* ---------------- Speech recognition (hardened) ---------------- */
 const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+/* Only iOS/Android truly kill SpeechRecognition when the page goes to the
+   background. Desktop Chrome keeps listening even when another window
+   occludes or focuses over it (which also fires visibilitychange=hidden),
+   so gate the forced stop-and-resume flow to mobile only. */
+const isMobile = /iP(hone|ad|od)|Android/.test(navigator.userAgent) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
 let recognition=null, wantRecording=false, interrupted=false;
 let recStartTime=null, recAccumMs=0, timerInterval=null;
 let lastResultTime=0, stallInterval=null, wakeLock=null;
@@ -944,7 +949,7 @@ function stopRecording(){
   saveNowForce();
 }
 document.addEventListener("visibilitychange",()=>{
-  if(document.visibilityState==="hidden" && wantRecording){
+  if(document.visibilityState==="hidden" && wantRecording && isMobile){
     wantRecording=false; interrupted=true;
     recAccumMs += Date.now()-(recStartTime||Date.now());
     if(recognition){ try{recognition.abort();}catch(_){ try{recognition.stop();}catch(__){} } }
