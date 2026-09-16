@@ -984,7 +984,7 @@ async function generateNote(){
         "anthropic-dangerous-direct-browser-access":"true"
       },
       body:JSON.stringify({
-        model:model(), max_tokens:2000, system:SYSTEM_PROMPT,
+        model:model(), max_tokens:4096, system:SYSTEM_PROMPT,
         messages:[{role:"user",content:"Transcript of consult:\n\n"+transcript}]
       })
     });
@@ -995,11 +995,17 @@ async function generateNote(){
     }
     const data=await resp.json();
     const raw=(data.content||[]).filter(b=>b.type==="text").map(b=>b.text).join("");
+    if(!raw.trim()){
+      throw new Error("The model returned no text"+(data.stop_reason?" (stop_reason: "+data.stop_reason+")":"")+". Try again — if this keeps happening, the transcript may be too long for the response limit.");
+    }
     const note=parseNoteJSON(raw);
     consult.note=note; consult.status="generated";
     consult.optomateExamId=null; consult.pushedAt=null; // a re-generated note is a new write, not an update to a prior push
     scheduleSave();
     renderNote(note,true);
+    if(!FIELDS.some(f=>(note[f.key]||"").trim())){
+      toast("Note generated, but every field came back empty — check the transcript actually captured your dictation");
+    }
     els("recStatus").textContent="Not recording";
   }catch(err){
     showError(err.message||String(err));
